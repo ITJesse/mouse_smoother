@@ -3,7 +3,7 @@ use crate::{log_info, log_debug};
 
 pub struct WheelDebouncer {
     debounce_time: Duration,
-    scroll_timeout: Duration,
+    debounce_timeout: Duration,
     last_direction: i32,
     last_scroll_time: Instant,
     is_scrolling: bool,
@@ -11,10 +11,10 @@ pub struct WheelDebouncer {
 }
 
 impl WheelDebouncer {
-    pub fn new(debounce_time: Duration, scroll_timeout: Duration) -> Self {
+    pub fn new(debounce_time: Duration, debounce_timeout: Duration) -> Self {
         WheelDebouncer {
             debounce_time,
-            scroll_timeout,
+            debounce_timeout,
             last_direction: 0,
             last_scroll_time: Instant::now(),
             is_scrolling: false,
@@ -48,7 +48,7 @@ impl WheelDebouncer {
         if direction != 0 && direction != self.last_direction {
             // 检查是否需要退出消抖状态
             if let Some(start_time) = self.debounce_start_time {
-                if now.duration_since(start_time) > self.scroll_timeout {
+                if now.duration_since(start_time) > self.debounce_timeout {
                     // 超过消抖超时时间，退出消抖状态
                     log_info!("消抖时间已超过超时限制，退出消抖状态: {:?}", now.duration_since(start_time));
                     self.debounce_start_time = None;
@@ -58,7 +58,7 @@ impl WheelDebouncer {
             }
             
             // 只有在消抖时间内的反向滚动才被视为抖动
-            if time_since_last < self.scroll_timeout {
+            if time_since_last < self.debounce_timeout {
                 // 在消抖时间内检测到反向滚动，认为是抖动
                 // 将事件改为与之前事件相同方向发送，而不是忽略
                 log_info!("检测到反向滚动抖动: 方向 {} -> {}, 时间间隔 {:?}", 

@@ -42,7 +42,7 @@ pub struct WheelConfig {
     
     // 滚动超时时间（毫秒）- 超过此时间认为是新的滚动开始
     #[serde(default = "default_scroll_timeout")]
-    pub scroll_timeout_ms: u64,
+    pub debounce_timeout_ms: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -88,7 +88,7 @@ impl Default for WheelConfig {
         WheelConfig {
             debounce_time_ms: default_debounce_time(),
             h_debounce_time_ms: default_debounce_time(),
-            scroll_timeout_ms: default_scroll_timeout(),
+            debounce_timeout_ms: default_scroll_timeout(),
         }
     }
 }
@@ -134,9 +134,9 @@ impl Config {
         Duration::from_millis(self.wheel.h_debounce_time_ms)
     }
     
-    /// 获取滚动超时时间
-    pub fn get_scroll_timeout(&self) -> Duration {
-        Duration::from_millis(self.wheel.scroll_timeout_ms)
+    /// 获取消抖超时时间
+    pub fn get_debounce_timeout(&self) -> Duration {
+        Duration::from_millis(self.wheel.debounce_timeout_ms)
     }
     
     /// 保存配置到文件

@@ -77,12 +77,12 @@ impl MouseSmoother {
         // 创建垂直和水平滚轮的消抖器
         let vertical_debouncer = WheelDebouncer::new(
             config.get_debounce_time(),
-            config.get_scroll_timeout()
+            config.get_debounce_timeout()
         );
         
         let horizontal_debouncer = WheelDebouncer::new(
             config.get_h_debounce_time(),
-            config.get_scroll_timeout()
+            config.get_debounce_timeout()
         );
         
         Ok(MouseSmoother {
