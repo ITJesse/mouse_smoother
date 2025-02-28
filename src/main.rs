@@ -104,6 +104,9 @@ impl MouseSmoother {
         log_info!("开始处理鼠标滚轮事件...");
         log_info!("其他鼠标事件将直接传递");
 
+        // 预分配一定容量的事件缓冲区，避免频繁重新分配内存
+        self.pending_events.reserve(16);
+
         loop {
             // 读取事件
             match self.input_device.next_event(ReadFlag::NORMAL) {
@@ -152,6 +155,7 @@ impl MouseSmoother {
         let mut hwheel_value = 0;
         let mut hwheel_hi_res_value = 0;
 
+        // 优化：一次遍历收集所有滚轮事件值
         for event in &self.pending_events {
             if let EventCode::EV_REL(rel_code) = event.event_code {
                 match rel_code {
@@ -176,105 +180,159 @@ impl MouseSmoother {
             }
         }
 
-        if has_wheel_events {
-            // 处理滚轮事件
-            let now = Instant::now();
-
-            // 处理垂直滚轮
-            if wheel_value != 0 || wheel_hi_res_value != 0 {
-                if self.config.get_debounce_time() == Duration::from_millis(0) {
-                    for event in &self.pending_events {
-                        self.virtual_device.write_event(event)?;
-                    }
-                    self.pending_events.clear();
-                    return Ok(());
-                }
-
-                // 如果只有标准滚轮事件，但没有高分辨率事件，则计算高分辨率值
-                if wheel_value != 0 && wheel_hi_res_value == 0 {
-                    wheel_hi_res_value = wheel_value * 120;
-                }
-
-                // 应用平滑处理
-                let smoothed_value = self.vertical_debouncer.smooth(wheel_hi_res_value, now);
-
-                if smoothed_value != 0 {
-                    // 计算标准滚轮事件的值
-                    let standard_value = smoothed_value / 120;
-
-                    // 发送标准滚轮事件
-                    if standard_value != 0 {
-                        let time_val = evdev_rs::TimeVal::new(0, 0);
-                        let event_code = EventCode::EV_REL(EV_REL::REL_WHEEL);
-                        let wheel_event = InputEvent::new(&time_val, &event_code, standard_value);
-                        self.virtual_device.write_event(&wheel_event)?;
-                    }
-
-                    // 发送高分辨率滚轮事件
-                    let time_val = evdev_rs::TimeVal::new(0, 0);
-                    let event_code = EventCode::EV_REL(EV_REL::REL_WHEEL_HI_RES);
-                    let hi_res_event = InputEvent::new(&time_val, &event_code, smoothed_value);
-                    self.virtual_device.write_event(&hi_res_event)?;
-
-                    self.last_event_time = now;
-                    self.last_wheel_time = now;
-                    self.last_wheel_value = smoothed_value;
-                } else {
-                    log_info!("  [已过滤] 可能是抖动");
-                }
-            }
-
-            // 处理水平滚轮
-            if hwheel_value != 0 || hwheel_hi_res_value != 0 {
-                if self.config.get_h_debounce_time() == Duration::from_millis(0) {
-                    for event in &self.pending_events {
-                        self.virtual_device.write_event(event)?;
-                    }
-                    self.pending_events.clear();
-                    return Ok(());
-                }
-                // 如果只有标准水平滚轮事件，但没有高分辨率事件，则计算高分辨率值
-                if hwheel_value != 0 && hwheel_hi_res_value == 0 {
-                    hwheel_hi_res_value = hwheel_value * 120;
-                }
-
-                // 应用平滑处理 - 使用专门的水平滚轮平滑函数
-                let smoothed_value = self.horizontal_debouncer.smooth(hwheel_hi_res_value, now);
-
-                if smoothed_value != 0 {
-                    // 计算标准水平滚轮事件的值
-                    let standard_value = smoothed_value / 120;
-
-                    // 发送标准水平滚轮事件
-                    if standard_value != 0 {
-                        let time_val = evdev_rs::TimeVal::new(0, 0);
-                        let event_code = EventCode::EV_REL(EV_REL::REL_HWHEEL);
-                        let wheel_event = InputEvent::new(&time_val, &event_code, standard_value);
-                        self.virtual_device.write_event(&wheel_event)?;
-                    }
-
-                    // 发送高分辨率水平滚轮事件
-                    let time_val = evdev_rs::TimeVal::new(0, 0);
-                    let event_code = EventCode::EV_REL(EV_REL::REL_HWHEEL_HI_RES);
-                    let hi_res_event = InputEvent::new(&time_val, &event_code, smoothed_value);
-                    self.virtual_device.write_event(&hi_res_event)?;
-
-                    self.last_event_time = now;
-                    self.last_hwheel_time = now;
-                    self.last_hwheel_value = smoothed_value;
-                } else {
-                    log_info!("  [已过滤] 可能是水平滚轮抖动");
-                }
-            }
-        } else {
-            // 没有滚轮事件，直接传递所有事件
+        // 如果没有滚轮事件或消抖时间为0，直接传递所有事件
+        if !has_wheel_events
+            || (wheel_value == 0
+                && wheel_hi_res_value == 0
+                && hwheel_value == 0
+                && hwheel_hi_res_value == 0)
+            || (self.config.get_debounce_time() == Duration::from_millis(0)
+                && self.config.get_h_debounce_time() == Duration::from_millis(0))
+        {
+            // 直接传递所有事件
             for event in &self.pending_events {
+                self.virtual_device.write_event(event)?;
+            }
+            self.pending_events.clear();
+            return Ok(());
+        }
+
+        let now = Instant::now();
+
+        // 处理垂直滚轮
+        if wheel_value != 0 || wheel_hi_res_value != 0 {
+            self.process_vertical_wheel(wheel_value, wheel_hi_res_value, now)?;
+        }
+
+        // 处理水平滚轮
+        if hwheel_value != 0 || hwheel_hi_res_value != 0 {
+            self.process_horizontal_wheel(hwheel_value, hwheel_hi_res_value, now)?;
+        }
+
+        // 处理非滚轮事件
+        for event in &self.pending_events {
+            if let EventCode::EV_REL(rel_code) = event.event_code {
+                match rel_code {
+                    EV_REL::REL_WHEEL
+                    | EV_REL::REL_WHEEL_HI_RES
+                    | EV_REL::REL_HWHEEL
+                    | EV_REL::REL_HWHEEL_HI_RES => {
+                        // 跳过已处理的滚轮事件
+                        continue;
+                    }
+                    _ => {
+                        // 传递其他相对事件
+                        self.virtual_device.write_event(event)?;
+                    }
+                }
+            } else {
+                // 传递非相对事件
                 self.virtual_device.write_event(event)?;
             }
         }
 
         // 清空待处理事件列表
         self.pending_events.clear();
+
+        Ok(())
+    }
+
+    // 新增：处理垂直滚轮事件的专用方法
+    fn process_vertical_wheel(
+        &mut self,
+        wheel_value: i32,
+        wheel_hi_res_value: i32,
+        now: Instant,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // 如果消抖时间为0，跳过处理
+        if self.config.get_debounce_time() == Duration::from_millis(0) {
+            return Ok(());
+        }
+
+        // 计算高分辨率值（如果只有标准滚轮事件）
+        let hi_res_value = if wheel_value != 0 && wheel_hi_res_value == 0 {
+            wheel_value * 120
+        } else {
+            wheel_hi_res_value
+        };
+
+        // 应用平滑处理
+        let smoothed_value = self.vertical_debouncer.smooth(hi_res_value, now);
+
+        if smoothed_value != 0 {
+            // 计算标准滚轮事件的值
+            let standard_value = smoothed_value / 120;
+
+            // 发送标准滚轮事件
+            if standard_value != 0 {
+                let time_val = evdev_rs::TimeVal::new(0, 0);
+                let event_code = EventCode::EV_REL(EV_REL::REL_WHEEL);
+                let wheel_event = InputEvent::new(&time_val, &event_code, standard_value);
+                self.virtual_device.write_event(&wheel_event)?;
+            }
+
+            // 发送高分辨率滚轮事件
+            let time_val = evdev_rs::TimeVal::new(0, 0);
+            let event_code = EventCode::EV_REL(EV_REL::REL_WHEEL_HI_RES);
+            let hi_res_event = InputEvent::new(&time_val, &event_code, smoothed_value);
+            self.virtual_device.write_event(&hi_res_event)?;
+
+            self.last_event_time = now;
+            self.last_wheel_time = now;
+            self.last_wheel_value = smoothed_value;
+        } else {
+            log_info!("  [已过滤] 可能是抖动");
+        }
+
+        Ok(())
+    }
+
+    // 新增：处理水平滚轮事件的专用方法
+    fn process_horizontal_wheel(
+        &mut self,
+        hwheel_value: i32,
+        hwheel_hi_res_value: i32,
+        now: Instant,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // 如果消抖时间为0，跳过处理
+        if self.config.get_h_debounce_time() == Duration::from_millis(0) {
+            return Ok(());
+        }
+
+        // 计算高分辨率值（如果只有标准水平滚轮事件）
+        let hi_res_value = if hwheel_value != 0 && hwheel_hi_res_value == 0 {
+            hwheel_value * 120
+        } else {
+            hwheel_hi_res_value
+        };
+
+        // 应用平滑处理
+        let smoothed_value = self.horizontal_debouncer.smooth(hi_res_value, now);
+
+        if smoothed_value != 0 {
+            // 计算标准水平滚轮事件的值
+            let standard_value = smoothed_value / 120;
+
+            // 发送标准水平滚轮事件
+            if standard_value != 0 {
+                let time_val = evdev_rs::TimeVal::new(0, 0);
+                let event_code = EventCode::EV_REL(EV_REL::REL_HWHEEL);
+                let wheel_event = InputEvent::new(&time_val, &event_code, standard_value);
+                self.virtual_device.write_event(&wheel_event)?;
+            }
+
+            // 发送高分辨率水平滚轮事件
+            let time_val = evdev_rs::TimeVal::new(0, 0);
+            let event_code = EventCode::EV_REL(EV_REL::REL_HWHEEL_HI_RES);
+            let hi_res_event = InputEvent::new(&time_val, &event_code, smoothed_value);
+            self.virtual_device.write_event(&hi_res_event)?;
+
+            self.last_event_time = now;
+            self.last_hwheel_time = now;
+            self.last_hwheel_value = smoothed_value;
+        } else {
+            log_info!("  [已过滤] 可能是水平滚轮抖动");
+        }
 
         Ok(())
     }
