@@ -261,7 +261,13 @@ impl MouseSmoother {
 
         if smoothed_value != 0 {
             // 计算标准滚轮事件的值
-            let standard_value = smoothed_value / 120;
+            let standard_value = if smoothed_value.abs() >= 120 {
+                smoothed_value / 120
+            } else if smoothed_value > 0 {
+                1
+            } else {
+                -1
+            };
 
             // 发送标准滚轮事件
             if standard_value != 0 {
@@ -311,7 +317,13 @@ impl MouseSmoother {
 
         if smoothed_value != 0 {
             // 计算标准水平滚轮事件的值
-            let standard_value = smoothed_value / 120;
+            let standard_value = if smoothed_value.abs() >= 120 {
+                smoothed_value / 120
+            } else if smoothed_value > 0 {
+                1
+            } else {
+                -1
+            };
 
             // 发送标准水平滚轮事件
             if standard_value != 0 {
