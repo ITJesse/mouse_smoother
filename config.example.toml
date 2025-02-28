@@ -3,7 +3,7 @@ name_filter = "Logitech USB Receiver Mouse"
 
 [wheel]
 debounce_time_ms = 300
-h_debounce_time_ms = 300
+h_debounce_time_ms = 0
 debounce_timeout_ms = 150
 
 [logging]

@@ -27,6 +27,7 @@ struct MouseSmoother {
     last_hwheel_time: Instant,
     last_hwheel_value: i32,
     pending_events: Vec<InputEvent>, // 存储待处理的事件
+    config: Config,
 }
 
 impl MouseSmoother {
@@ -95,6 +96,7 @@ impl MouseSmoother {
             last_hwheel_time: Instant::now(),
             last_hwheel_value: 0,
             pending_events: Vec::new(),
+            config: config.clone(),
         })
     }
 
@@ -180,6 +182,14 @@ impl MouseSmoother {
 
             // 处理垂直滚轮
             if wheel_value != 0 || wheel_hi_res_value != 0 {
+                if self.config.get_debounce_time() == Duration::from_millis(0) {
+                    for event in &self.pending_events {
+                        self.virtual_device.write_event(event)?;
+                    }
+                    self.pending_events.clear();
+                    return Ok(());
+                }
+
                 // 如果只有标准滚轮事件，但没有高分辨率事件，则计算高分辨率值
                 if wheel_value != 0 && wheel_hi_res_value == 0 {
                     wheel_hi_res_value = wheel_value * 120;
@@ -216,6 +226,13 @@ impl MouseSmoother {
 
             // 处理水平滚轮
             if hwheel_value != 0 || hwheel_hi_res_value != 0 {
+                if self.config.get_h_debounce_time() == Duration::from_millis(0) {
+                    for event in &self.pending_events {
+                        self.virtual_device.write_event(event)?;
+                    }
+                    self.pending_events.clear();
+                    return Ok(());
+                }
                 // 如果只有标准水平滚轮事件，但没有高分辨率事件，则计算高分辨率值
                 if hwheel_value != 0 && hwheel_hi_res_value == 0 {
                     hwheel_hi_res_value = hwheel_value * 120;

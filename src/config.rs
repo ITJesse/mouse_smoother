@@ -4,7 +4,7 @@ use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     // 设备配置
     #[serde(default)]
@@ -19,7 +19,7 @@ pub struct Config {
     pub logging: LoggingConfig,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DeviceConfig {
     // 设备路径或ID
     #[serde(default)]
@@ -30,7 +30,7 @@ pub struct DeviceConfig {
     pub name_filter: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WheelConfig {
     // 垂直滚轮消抖时间（毫秒）
     #[serde(default = "default_debounce_time")]
@@ -45,7 +45,7 @@ pub struct WheelConfig {
     pub debounce_timeout_ms: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LoggingConfig {
     // 日志级别: error, warn, info, debug, trace
     #[serde(default = "default_log_level")]
